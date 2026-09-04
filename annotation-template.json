@@ -1,0 +1,48 @@
+{
+  "image": {
+    "id": "frame_000001",
+    "file": "images/train/frame_000001.jpg",
+    "width": 1280,
+    "height": 720
+  },
+
+  "faces": [
+    {
+      "bbox": [412, 180, 448, 225],
+      "landmarks": {
+        "right_eye": {
+          "x": 438,
+          "y": 195,
+          "visible": true
+        },
+        "left_eye": {
+          "x": 421,
+          "y": 194,
+          "visible": true
+        },
+        "nose": {
+          "x": 430,
+          "y": 204,
+          "visible": true
+        },
+        "mouth_right": {
+          "x": null,
+          "y": null,
+          "visible": false
+        },
+        "mouth_left": {
+          "x": null,
+          "y": null,
+          "visible": false
+        }
+      },
+
+      "attributes": {
+        "occluded": false,
+        "blurred": false,
+        "small": false,
+        "pose": "unknown"
+      }
+    }
+  ]
+}
