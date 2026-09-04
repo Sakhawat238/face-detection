@@ -145,7 +145,8 @@ class AnnotationViewer(tk.Tk):
             self.bind(f"<KeyPress-{key}>", lambda event, name=name: self.place_landmark(name))
         self.canvas.bind("<Button-1>", self.start_drag)
         self.canvas.bind("<B1-Motion>", self.move_drag)
-        self.canvas.bind("<ButtonRelease-1>", lambda event: setattr(self, "drag", None))
+        self.canvas.bind("<ButtonRelease-1>", self.end_drag)
+        self.bind("<Escape>", self.cancel_drag)
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.update_navigation()
 
@@ -241,8 +242,6 @@ class AnnotationViewer(tk.Tk):
         else:
             del self.current_faces()[self.selected]
         self.dirty = True
-        # Clear both selections: repeated Delete must not remove the parent
-        # face after hiding a landmark, or the next face after removing a box.
         self.selected = self.selected_landmark = self.drag = None
         self.render()
         return "break"
@@ -318,6 +317,10 @@ class AnnotationViewer(tk.Tk):
             self.drag = (i, kind, detail, (event.x-ox)/sx, (event.y-oy)/sy, copy.deepcopy(faces[i]))
         else:
             self.selected = None
+            width, height = self.source_image.size
+            if ox <= event.x < ox+width*sx and oy <= event.y < oy+height*sy:
+                x, y = min(width-1, (event.x-ox)/sx), min(height-1, (event.y-oy)/sy)
+                self.drag = (None, "new", None, x, y, {"bbox": [x, y, x, y]})
         self.render()
 
     def move_drag(self, event):
@@ -328,6 +331,10 @@ class AnnotationViewer(tk.Tk):
         width, height = self.source_image.size
         x = min(width-1, max(0, (event.x-ox)/sx))
         y = min(height-1, max(0, (event.y-oy)/sy))
+        if kind == "new":
+            original["bbox"] = [min(start_x, x), min(start_y, y), max(start_x, x), max(start_y, y)]
+            self.render()
+            return
         updated = copy.deepcopy(original)
         if kind == "landmark":
             updated["landmarks"][detail].update(x=x, y=y)
@@ -359,11 +366,48 @@ class AnnotationViewer(tk.Tk):
             self.dirty = True
         self.render()
 
+    def cancel_drag(self, event=None):
+        # New boxes are only committed on release. Existing edits remain intact.
+        self.drag = None
+        self.render()
+        return "break"
+
+    def end_drag(self, event):
+        if self.drag is None:
+            return
+        self.move_drag(event)
+        _, kind, _, _, _, draft = self.drag
+        self.drag = None
+        if kind == "new":
+            x1, y1, x2, y2 = draft["bbox"]
+            # Ignore clicks and accidental tiny drags.
+            if x2-x1 < 1 or y2-y1 < 1:
+                self.render()
+                return
+            path = self.paths[self.index]
+            width, height = self.source_image.size
+            record = self.annotations.setdefault(path.stem, {
+                "image": {"id": path.stem, "file": path.as_posix(), "width": width, "height": height},
+                "faces": [],
+            })
+            faces = record.setdefault("faces", [])
+            faces.append({
+                "bbox": [x1, y1, x2, y2],
+                "landmarks": {name: {"x": None, "y": None, "visible": False} for name in COLORS},
+                "attributes": {"occluded": False, "blurred": False, "small": False, "pose": "unknown"},
+            })
+            self.selected = len(faces)-1
+            self.selected_landmark = None
+            self.show_boxes.set(True)
+            self.dirty = True
+        self.render()
+
 
     def choose_folder(self):
         directory = filedialog.askdirectory(parent=self, title="Select image source folder")
         if directory:
             self.open_folder(Path(directory))
+
 
     def open_folder(self, directory):
         try:
@@ -510,6 +554,11 @@ class AnnotationViewer(tk.Tk):
             except (KeyError, TypeError, ValueError, AttributeError):
                 warnings.append(f"Face {index}: malformed overlay data")
 
+        if self.drag is not None and self.drag[1] == "new":
+            x1, y1, x2, y2 = self.drag[5]["bbox"]
+            self.canvas.create_rectangle(ox+x1*dw/width, oy+y1*dh/height,
+                                         ox+x2*dw/width, oy+y2*dh/height,
+                                         outline="#ffe36e", width=2, dash=(5, 3))
         self.title("Face annotation tool" + (" — Unsaved edits" if self.dirty else ""))
         self.status.set(f"{width} x {height} | {scale:.0%} | " + ("Unsaved edits | " if self.dirty else "") + "; ".join(warnings))
 
